@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Home, 
-  History, 
-  LogOut, 
-  User, 
+import {
+  Home,
+  History,
+  LogOut,
+  User,
   Coins,
   Menu,
-  X
+  X,
+  Users
 } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -19,8 +20,9 @@ const Navbar = () => {
   const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef();
 
-  // Fetch user balance
   const fetchBalance = async () => {
     try {
       const response = await axios.get('/user/balance');
@@ -32,7 +34,6 @@ const Navbar = () => {
 
   useEffect(() => {
     fetchBalance();
-    // Refresh balance every 30 seconds
     const interval = setInterval(fetchBalance, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -51,110 +52,111 @@ const Navbar = () => {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: Home },
     { name: 'History', href: '/history', icon: History },
+    { name: 'Leaderboard', href: '/leaderboard', icon: Users },
   ];
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          {/* Logo and Navigation */}
-          <div className="flex items-center">
-            <div className="flex-shrink-0 flex items-center">
-              <div className="h-8 w-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <Coins className="h-5 w-5 text-white" />
-              </div>
-              <span className="ml-2 text-xl font-bold text-gray-900">unWalleted</span>
+    <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12">
+        <div className="flex justify-between items-center h-20">
+          {/* Logo */}
+          <Link to="/" className="flex items-center space-x-2">
+            <div className="h-10 w-10 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow">
+              <Coins className="h-5 w-5 text-white" />
             </div>
-            
-            {/* Desktop Navigation */}
-            <div className="hidden md:ml-8 md:flex md:space-x-8">
-              {navigation.map((item) => {
-                const isActive = location.pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors duration-200 ${
-                      isActive
-                        ? 'border-indigo-500 text-gray-900'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <item.icon className="h-4 w-4 mr-2" />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </div>
+            <span className="text-2xl font-semibold text-gray-800 tracking-tight">unWalleted</span>
+          </Link>
+
+          {/* Navigation */}
+          <div className="hidden md:flex items-center space-x-6">
+            {navigation.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className={`flex items-center px-4 py-2 rounded-lg text-lg font-medium transition ${
+                    isActive
+                      ? 'bg-indigo-100 text-indigo-700 shadow-inner'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                  }`}
+                >
+                  <item.icon className="h-5 w-5 mr-2" />
+                  {item.name}
+                </Link>
+              );
+            })}
           </div>
 
-          {/* User Menu and Balance */}
-          <div className="flex items-center space-x-4">
-            {/* Balance Display */}
-            <div className="hidden sm:flex items-center bg-gradient-to-r from-green-50 to-emerald-50 px-4 py-2 rounded-lg border border-green-200">
-              <Coins className="h-4 w-4 text-green-600 mr-2" />
-              <span className="text-sm font-medium text-green-800">
+          {/* Right Side */}
+          <div className="flex items-center space-x-4 relative">
+            {/* Coins Balance */}
+            <div className="hidden sm:flex items-center px-4 py-2 rounded-lg bg-green-50 border border-green-200 shadow-sm">
+              <Coins className="h-5 w-5 text-green-600 mr-2" />
+              <span className="text-lg font-medium text-green-800">
                 {balance.toFixed(2)} TASK
               </span>
             </div>
 
-            {/* User Profile */}
-            <div className="relative">
-              <div className="flex items-center space-x-3">
-                <div className="flex items-center">
-                  <div className="h-8 w-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
-                    <User className="h-4 w-4 text-white" />
-                  </div>
-                  <span className="ml-2 text-sm font-medium text-gray-700 hidden sm:block">
-                    {user?.displayName || user?.email}
-                  </span>
-                </div>
-                
-                {/* Mobile menu button */}
-                <button
-                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                  className="md:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
-                >
-                  {mobileMenuOpen ? (
-                    <X className="h-5 w-5" />
-                  ) : (
-                    <Menu className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
+            {/* Profile */}
+            <div className="relative" ref={profileRef}>
+              <button
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="h-10 w-10 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow hover:scale-105 transition-transform"
+              >
+                <User className="h-5 w-5 text-white" />
+              </button>
 
-              {/* Desktop Dropdown */}
-              <div className="hidden md:block">
-                <button
-                  onClick={handleSignOut}
-                  disabled={loading}
-                  className="ml-4 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200"
-                >
-                  {loading ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500 mr-2"></div>
-                  ) : (
-                    <LogOut className="h-4 w-4 mr-2" />
-                  )}
-                  Sign Out
-                </button>
-              </div>
+              {profileOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                    <p className="text-sm text-gray-500">Signed in as</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {user?.displayName || user?.email}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    disabled={loading}
+                    className="flex w-full items-center px-4 py-3 text-gray-700 hover:bg-gray-100 transition"
+                  >
+                    {loading ? (
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500 mr-2"></div>
+                    ) : (
+                      <LogOut className="h-5 w-5 mr-2" />
+                    )}
+                    Sign Out
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* Mobile Menu Toggle */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+            >
+              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
         </div>
       </div>
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white border-t border-gray-200">
-            {/* Mobile Balance */}
-            <div className="flex items-center px-3 py-2 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200 mb-4">
-              <Coins className="h-4 w-4 text-green-600 mr-2" />
-              <span className="text-sm font-medium text-green-800">
-                {balance.toFixed(2)} TASK
-              </span>
-            </div>
-            
+        <div className="md:hidden bg-white border-t border-gray-200 shadow-inner">
+          <div className="px-5 py-5 space-y-4">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
               return (
@@ -162,37 +164,47 @@ const Navbar = () => {
                   key={item.name}
                   to={item.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`block px-3 py-2 rounded-md text-base font-medium transition-colors duration-200 ${
+                  className={`flex items-center px-4 py-3 rounded-lg text-lg font-medium transition ${
                     isActive
-                      ? 'bg-indigo-50 text-indigo-700'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
                   }`}
                 >
-                  <div className="flex items-center">
-                    <item.icon className="h-5 w-5 mr-3" />
-                    {item.name}
-                  </div>
+                  <item.icon className="h-5 w-5 mr-2" />
+                  {item.name}
                 </Link>
               );
             })}
-            
-            {/* Mobile Sign Out */}
+
+            <div className="flex items-center px-4 py-3 rounded-lg bg-green-50 border border-green-200 shadow-sm">
+              <Coins className="h-5 w-5 text-green-600 mr-2" />
+              <span className="text-lg font-medium text-green-800">
+                {balance.toFixed(2)} TASK
+              </span>
+            </div>
+
+            {/* Mobile Profile Section */}
+            <div className="px-4 py-3 border-t border-gray-100">
+              <p className="text-sm text-gray-500">Signed in as</p>
+              <p className="text-sm font-medium text-gray-800 truncate">
+                {user?.displayName || user?.email}
+              </p>
+            </div>
+
             <button
               onClick={() => {
                 handleSignOut();
                 setMobileMenuOpen(false);
               }}
               disabled={loading}
-              className="w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors duration-200"
+              className="flex w-full items-center px-4 py-3 rounded-lg text-lg font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition"
             >
-              <div className="flex items-center">
-                {loading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500 mr-3"></div>
-                ) : (
-                  <LogOut className="h-5 w-5 mr-3" />
-                )}
-                Sign Out
-              </div>
+              {loading ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500 mr-2"></div>
+              ) : (
+                <LogOut className="h-5 w-5 mr-2" />
+              )}
+              Sign Out
             </button>
           </div>
         </div>
@@ -201,4 +213,4 @@ const Navbar = () => {
   );
 };
 
-export default Navbar; 
+export default Navbar;
