@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-
 import { 
   CheckCircle, 
   Circle, 
@@ -723,10 +722,6 @@ const Dashboard = () => {
           );
         })}
       </div>
-
-     
-
-
       {/* Info Section */}
       <div className="mt-12 bg-blue-50 rounded-lg p-6 border border-blue-200">
         <h3 className="text-lg font-semibold text-blue-900 mb-2">How it works</h3>
