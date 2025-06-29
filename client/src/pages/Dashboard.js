@@ -9,7 +9,8 @@ import {
   MessageCircle,
   Coins,
   Calendar,
-  TrendingUp
+  TrendingUp,
+  User
 } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -43,23 +44,76 @@ const Dashboard = () => {
     whatsapp: 'bg-green-500'
   };
 
+  // Mock tasks for demo - replace with API call
+  const mockTasks = [
+    {
+      id: 1,
+      title: 'Tweet about Web3',
+      description: 'Share your thoughts about Web3 technology on Twitter',
+      platform: 'twitter',
+      reward: 10,
+      completed: false,
+      completedAt: null
+    },
+    {
+      id: 2,
+      title: 'LinkedIn Article',
+      description: 'Write a professional article about blockchain',
+      platform: 'linkedin',
+      reward: 15,
+      completed: false,
+      completedAt: null
+    },
+    {
+      id: 3,
+      title: 'YouTube Short',
+      description: 'Create a short video about cryptocurrency',
+      platform: 'youtube',
+      reward: 20,
+      completed: false,
+      completedAt: null
+    },
+    {
+      id: 4,
+      title: 'Telegram Engagement',
+      description: 'Participate in community discussions',
+      platform: 'telegram',
+      reward: 8,
+      completed: false,
+      completedAt: null
+    },
+    {
+      id: 5,
+      title: 'WhatsApp Share',
+      description: 'Share educational content in groups',
+      platform: 'whatsapp',
+      reward: 8,
+      completed: false,
+      completedAt: null
+    }
+  ];
+
   // Fetch daily tasks
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/tasks/daily');
-      setTasks(response.data.tasks);
+      
+      // For demo purposes, use mock data
+      // Replace this with actual API call: const response = await axios.get('/tasks/daily');
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
+      
+      setTasks(mockTasks);
       
       // Calculate stats
-      const completedToday = response.data.tasks.filter(task => task.completed).length;
-      const totalReward = response.data.tasks
+      const completedToday = mockTasks.filter(task => task.completed).length;
+      const totalReward = mockTasks
         .filter(task => task.completed)
         .reduce((sum, task) => sum + task.reward, 0);
       
       setStats({
         completedToday,
         totalReward,
-        streak: 0 // TODO: Implement streak calculation
+        streak: 3 // Mock streak
       });
     } catch (error) {
       console.error('Error fetching tasks:', error);
@@ -74,30 +128,32 @@ const Dashboard = () => {
     try {
       setCompletingTask(taskId);
       
-      // For demo purposes, we'll use a simple proof
-      const proof = {
-        type: 'manual_verification',
-        timestamp: new Date().toISOString(),
-        description: 'Task completed by user'
-      };
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // FIX: Use functional update to ensure we have the latest tasks state
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === taskId 
+            ? { ...task, completed: true, completedAt: new Date().toISOString() }
+            : task
+        )
+      );
 
-      const response = await axios.post('/tasks/complete', {
-        taskId,
-        proof
-      });
-
-      if (response.data.success) {
-        toast.success(response.data.message);
-        // Refresh tasks
-        await fetchTasks();
+      // FIX: Get task from current state correctly
+      const currentTask = tasks.find(t => t.id === taskId);
+      if (currentTask) {
+        setStats(prevStats => ({
+          ...prevStats,
+          completedToday: prevStats.completedToday + 1,
+          totalReward: prevStats.totalReward + currentTask.reward
+        }));
+        
+        toast.success(`Task completed! +${currentTask.reward} TASK tokens earned`);
       }
     } catch (error) {
       console.error('Error completing task:', error);
-      if (error.response?.data?.error) {
-        toast.error(error.response.data.error);
-      } else {
-        toast.error('Failed to complete task');
-      }
+      toast.error('Failed to complete task');
     } finally {
       setCompletingTask(null);
     }
@@ -106,6 +162,17 @@ const Dashboard = () => {
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  // Get user's first name
+  const getUserFirstName = () => {
+    if (user?.displayName) {
+      return user.displayName.split(' ')[0];
+    }
+    if (user?.email) {
+      return user.email.split('@')[0];
+    }
+    return 'User';
+  };
 
   if (loading) {
     return (
@@ -120,16 +187,21 @@ const Dashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
+      {/* Header with User Info */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Good morning, {user?.displayName?.split(' ')[0] || 'User'}! 👋
-        </h1>
-        <p className="text-gray-600">
-          Complete your daily tasks to earn TASK tokens on Flow blockchain
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Good morning, {getUserFirstName()}! 👋
+            </h1>
+            <p className="text-gray-600">
+              Complete your daily tasks to earn TASK tokens on Flow blockchain
+            </p>
+          </div>
+          {/* FIX: Removed empty div that was causing layout issues */}
+        </div>
       </div>
-
+  
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
@@ -279,4 +351,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

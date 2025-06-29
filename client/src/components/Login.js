@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogIn, Sparkles } from 'lucide-react';
-import useAuth from './useAuth';
+import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
   const { signInWithGoogle, loading } = useAuth();
