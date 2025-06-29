@@ -1,0 +1,38 @@
+{
+  "networks": {
+    "emulator": "127.0.0.1:3569",
+    "mainnet": "access.mainnet.nodes.onflow.org:9000",
+    "testnet": "access.devnet.nodes.onflow.org:9000"
+  },
+  "accounts": {
+    "emulator-account": {
+      "address": "f8d6e0586b0a20c7",
+      "key": "5112883de06b9576af62b9aafa7ead685fb7fb46c495039b1a83649d61bff97c"
+    },
+    "admin-account": {
+      "address": "your-admin-address",
+      "key": "your-admin-private-key"
+    }
+  },
+  "contracts": {
+    "TaskRewardToken": {
+      "source": "./contracts/TaskRewardToken.cdc",
+      "aliases": {
+        "testnet": "your-contract-address",
+        "mainnet": "your-contract-address"
+      }
+    }
+  },
+  "deployments": {
+    "testnet": {
+      "admin-account": {
+        "TaskRewardToken": "your-contract-address"
+      }
+    },
+    "mainnet": {
+      "admin-account": {
+        "TaskRewardToken": "your-contract-address"
+      }
+    }
+  }
+} 
