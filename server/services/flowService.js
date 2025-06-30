@@ -1,105 +1,277 @@
-const { fcl } = require('@onflow/fcl');
-const { send, getAccount } = require('@onflow/fcl');
-const { script, transaction, proposer, authorizer, payer } = require('@onflow/fcl');
+const fcl = require('@onflow/fcl');
+const t = require('@onflow/types');
+const { ec: EC } = require('elliptic');
+const { SHA3 } = require('sha3');
+const crypto = require('crypto');
 
 class FlowService {
   constructor() {
     this.adminAddress = process.env.FLOW_ADMIN_ADDRESS;
     this.adminPrivateKey = process.env.FLOW_ADMIN_PRIVATE_KEY;
     this.contractAddress = process.env.FLOW_CONTRACT_ADDRESS;
+    this.isTestnet = process.env.FLOW_NETWORK === 'testnet';
     
-    // Configure FCL for admin operations
+    // Configure FCL
     fcl.config()
-      .put('accessNode.api', process.env.FLOW_ACCESS_NODE || 'https://rest-testnet.onflow.org')
-      .put('discovery.wallet', process.env.FLOW_WALLET || 'https://fcl-discovery.onflow.org/testnet/authn');
+      .put('accessNode.api', this.isTestnet ? 
+        'https://rest-testnet.onflow.org' : 
+        'https://rest-mainnet.onflow.org')
+      .put('discovery.wallet', this.isTestnet ?
+        'https://fcl-discovery.onflow.org/testnet/authn' :
+        'https://fcl-discovery.onflow.org/authn')
+      .put('0xFungibleToken', this.isTestnet ? '0x9a0766d93b6608b7' : '0xf233dcee88fe0abe')
+      .put('0xTaskRewardToken', this.contractAddress);
   }
 
   /**
-   * Create a Flow account for a user (custodial)
+   * Generate a new Flow keypair
    */
-  async createUserAccount(userId) {
-    try {
-      // This would typically involve creating a new Flow account
-      // For now, we'll use a simple mapping
-      const accountAddress = `0x${userId.slice(0, 16)}`; // Simplified for demo
-      
+  generateKeyPair() {
+    const ec = new EC('p256');
+    const keyPair = ec.genKeyPair();
+    
+    const privateKey = keyPair.getPrivate('hex');
+    const publicKey = keyPair.getPublic('hex').replace(/^04/, '');
+    
+    return { privateKey, publicKey };
+  }
+
+  /**
+   * Create authorization function for transactions
+   */
+  createAuthz(privateKey, address, keyIndex = 0) {
+    return (account) => {
       return {
-        address: accountAddress,
-        success: true
+        ...account,
+        tempId: `${address}-${keyIndex}`,
+        addr: fcl.sansPrefix(address),
+        keyId: keyIndex,
+        signingFunction: (signable) => {
+          const ec = new EC('p256');
+          const key = ec.keyFromPrivate(Buffer.from(privateKey, 'hex'));
+          const sig = key.sign(Buffer.from(signable.message, 'hex'));
+          const n = 32;
+          const r = sig.r.toArrayLike(Buffer, 'be', n);
+          const s = sig.s.toArrayLike(Buffer, 'be', n);
+          return {
+            addr: fcl.sansPrefix(address),
+            keyId: keyIndex,
+            signature: Buffer.concat([r, s]).toString('hex')
+          };
+        }
       };
-    } catch (error) {
-      console.error('Error creating user account:', error);
-      throw new Error('Failed to create Flow account');
-    }
+    };
   }
 
   /**
-   * Mint tokens to a user's account
+   * Create a Flow account (custodial)
    */
-  async mintTokens(recipientAddress, amount) {
+  async createAccount(userId) {
     try {
-      const transactionCode = `
-        import TaskRewardToken from ${this.contractAddress}
-        
-        transaction(recipient: Address, amount: UFix64) {
-          let admin: &TaskRewardToken.Admin
-          let recipientVault: &{TaskRewardToken.Receiver}
-          
+      // Generate new keypair
+      const { privateKey, publicKey } = this.generateKeyPair();
+      
+      // Create account transaction
+      const createAccountTx = `
+        transaction(publicKey: String) {
           prepare(signer: AuthAccount) {
-            self.admin = signer.borrow<&TaskRewardToken.Admin>(from: /storage/TaskRewardTokenAdmin)
-              ?? panic("Admin not found")
-            self.recipientVault = getAccount(recipient).getCapability<&{TaskRewardToken.Receiver}>(/public/TaskRewardTokenReceiver)
-              ?? panic("Recipient vault not found")
-          }
-          
-          execute {
-            self.admin.mintTokens(amount: amount, recipient: self.recipientVault)
+            let account = AuthAccount(payer: signer)
+            account.keys.add(
+              publicKey: PublicKey(
+                publicKey: publicKey.decodeHex(),
+                signatureAlgorithm: SignatureAlgorithm.ECDSA_P256
+              ),
+              hashAlgorithm: HashAlgorithm.SHA3_256,
+              weight: 1000.0
+            )
           }
         }
       `;
 
-      const result = await send([
-        transaction(transactionCode),
-        proposer(fcl.authz),
-        authorizer(fcl.authz),
-        payer(fcl.authz),
-        fcl.args([
-          fcl.arg(recipientAddress, fcl.t.Address),
-          fcl.arg(amount.toString(), fcl.t.UFix64)
-        ])
-      ]);
+      const adminAuthz = this.createAuthz(this.adminPrivateKey, this.adminAddress);
+
+      const txId = await fcl.mutate({
+        cadence: createAccountTx,
+        args: (arg, t) => [
+          arg(publicKey, t.String)
+        ],
+        proposer: adminAuthz,
+        authorizations: [adminAuthz],
+        payer: adminAuthz,
+        limit: 1000
+      });
+
+      // Get transaction result to extract new account address
+      const txResult = await fcl.tx(txId).onceSealed();
+      
+      // Extract account address from events
+      const accountCreatedEvent = txResult.events.find(e => 
+        e.type === 'flow.AccountCreated'
+      );
+      
+      const newAccountAddress = accountCreatedEvent?.data?.address;
+
+      if (!newAccountAddress) {
+        throw new Error('Failed to extract account address from transaction');
+      }
 
       return {
-        transactionId: result.transactionId,
+        address: newAccountAddress,
+        publicKey,
+        privateKey, // Will be encrypted before storing
+        transactionId: txId,
+        success: true
+      };
+    } catch (error) {
+      console.error('Error creating Flow account:', error);
+      throw new Error(`Failed to create Flow account: ${error.message}`);
+    }
+  }
+
+  /**
+   * Setup user vault for TaskRewardToken
+   */
+  async setupUserVault(userAddress, userPrivateKey) {
+    try {
+      const setupVaultTx = `
+        import FungibleToken from 0xFungibleToken
+        import TaskRewardToken from 0xTaskRewardToken
+
+        transaction() {
+          prepare(signer: AuthAccount) {
+            // Return early if the account already has a Vault
+            if signer.borrow<&TaskRewardToken.Vault>(from: TaskRewardToken.VaultStoragePath) != nil {
+              return
+            }
+
+            // Create a new vault and put it in storage
+            let vault <- TaskRewardToken.createEmptyVault()
+            signer.save(<-vault, to: TaskRewardToken.VaultStoragePath)
+
+            // Create a public capability for the vault
+            signer.link<&{FungibleToken.Receiver}>(
+              TaskRewardToken.VaultPublicPath,
+              target: TaskRewardToken.VaultStoragePath
+            )
+
+            // Create a public capability for the vault balance
+            signer.link<&{FungibleToken.Balance}>(
+              /public/taskRewardTokenBalance,
+              target: TaskRewardToken.VaultStoragePath
+            )
+          }
+        }
+      `;
+
+      const userAuthz = this.createAuthz(userPrivateKey, userAddress);
+
+      const txId = await fcl.mutate({
+        cadence: setupVaultTx,
+        proposer: userAuthz,
+        authorizations: [userAuthz],
+        payer: userAuthz,
+        limit: 1000
+      });
+
+      await fcl.tx(txId).onceSealed();
+
+      return {
+        transactionId: txId,
+        success: true
+      };
+    } catch (error) {
+      console.error('Error setting up user vault:', error);
+      throw new Error(`Failed to setup user vault: ${error.message}`);
+    }
+  }
+
+  /**
+   * Mint tokens to user account
+   */
+  async mintTokens(recipientAddress, amount) {
+    try {
+      const mintTokensTx = `
+        import FungibleToken from 0xFungibleToken
+        import TaskRewardToken from 0xTaskRewardToken
+
+        transaction(recipient: Address, amount: UFix64) {
+          let tokenAdmin: &TaskRewardToken.Admin
+          let tokenReceiver: &{FungibleToken.Receiver}
+
+          prepare(signer: AuthAccount) {
+            self.tokenAdmin = signer
+              .borrow<&TaskRewardToken.Admin>(from: TaskRewardToken.AdminStoragePath)
+              ?? panic("Signer is not the token admin")
+
+            self.tokenReceiver = getAccount(recipient)
+              .getCapability(TaskRewardToken.VaultPublicPath)
+              .borrow<&{FungibleToken.Receiver}>()
+              ?? panic("Unable to borrow receiver reference")
+          }
+
+          execute {
+            let minterVault <- self.tokenAdmin.createNewMinter(allowedAmount: amount)
+            let mintedVault <- minterVault.mintTokens(amount: amount)
+            
+            self.tokenReceiver.deposit(from: <-mintedVault)
+            destroy minterVault
+          }
+        }
+      `;
+
+      const adminAuthz = this.createAuthz(this.adminPrivateKey, this.adminAddress);
+
+      const txId = await fcl.mutate({
+        cadence: mintTokensTx,
+        args: (arg, t) => [
+          arg(recipientAddress, t.Address),
+          arg(amount.toFixed(8), t.UFix64)
+        ],
+        proposer: adminAuthz,
+        authorizations: [adminAuthz],
+        payer: adminAuthz,
+        limit: 1000
+      });
+
+      await fcl.tx(txId).onceSealed();
+
+      return {
+        transactionId: txId,
+        amount,
         success: true
       };
     } catch (error) {
       console.error('Error minting tokens:', error);
-      throw new Error('Failed to mint tokens');
+      throw new Error(`Failed to mint tokens: ${error.message}`);
     }
   }
 
   /**
-   * Get token balance for a user
+   * Get user's token balance
    */
   async getBalance(userAddress) {
     try {
-      const scriptCode = `
-        import TaskRewardToken from ${this.contractAddress}
-        
+      const balanceScript = `
+        import FungibleToken from 0xFungibleToken
+        import TaskRewardToken from 0xTaskRewardToken
+
         pub fun main(address: Address): UFix64 {
-          let vault = getAccount(address).getCapability<&TaskRewardToken.Vault{TaskRewardToken.Balance}>(/public/TaskRewardTokenBalance)
-            ?? panic("Vault not found")
-          return vault.balance()
+          let account = getAccount(address)
+          let vaultRef = account
+            .getCapability(/public/taskRewardTokenBalance)
+            .borrow<&{FungibleToken.Balance}>()
+            ?? panic("Could not borrow Balance reference")
+
+          return vaultRef.balance
         }
       `;
 
-      const result = await fcl.query({
-        cadence: scriptCode,
+      const balance = await fcl.query({
+        cadence: balanceScript,
         args: (arg, t) => [arg(userAddress, t.Address)]
       });
 
-      return parseFloat(result);
+      return parseFloat(balance) || 0;
     } catch (error) {
       console.error('Error getting balance:', error);
       return 0;
@@ -107,140 +279,22 @@ class FlowService {
   }
 
   /**
-   * Transfer tokens between accounts
+   * Get account information
    */
-  async transferTokens(fromAddress, toAddress, amount) {
+  async getAccountInfo(address) {
     try {
-      const transactionCode = `
-        import TaskRewardToken from ${this.contractAddress}
-        
-        transaction(to: Address, amount: UFix64) {
-          let senderVault: &TaskRewardToken.Vault{TaskRewardToken.Provider}
-          let receiverVault: &{TaskRewardToken.Receiver}
-          
-          prepare(signer: AuthAccount) {
-            self.senderVault = signer.borrow<&TaskRewardToken.Vault{TaskRewardToken.Provider}>(from: /storage/TaskRewardTokenVault)
-              ?? panic("Sender vault not found")
-            self.receiverVault = getAccount(to).getCapability<&{TaskRewardToken.Receiver}>(/public/TaskRewardTokenReceiver)
-              ?? panic("Receiver vault not found")
-          }
-          
-          execute {
-            let vault <- self.senderVault.withdraw(amount: amount)
-            self.receiverVault.deposit(from: <-vault)
-          }
-        }
-      `;
-
-      const result = await send([
-        transaction(transactionCode),
-        proposer(fcl.authz),
-        authorizer(fcl.authz),
-        payer(fcl.authz),
-        fcl.args([
-          fcl.arg(toAddress, fcl.t.Address),
-          fcl.arg(amount.toString(), fcl.t.UFix64)
-        ])
-      ]);
-
+      const account = await fcl.account(address);
       return {
-        transactionId: result.transactionId,
-        success: true
+        address: account.address,
+        balance: account.balance,
+        keys: account.keys,
+        exists: true
       };
     } catch (error) {
-      console.error('Error transferring tokens:', error);
-      throw new Error('Failed to transfer tokens');
+      console.error('Error getting account info:', error);
+      return { exists: false };
     }
-  }
-
-  /**
-   * Setup user vault (called when user first completes a task)
-   */
-  async setupUserVault(userAddress) {
-    try {
-      const transactionCode = `
-        import TaskRewardToken from ${this.contractAddress}
-        
-        transaction() {
-          prepare(signer: AuthAccount) {
-            // Create vault if it doesn't exist
-            if signer.borrow<&TaskRewardToken.Vault>(from: /storage/TaskRewardTokenVault) == nil {
-              let vault <- TaskRewardToken.createEmptyVault()
-              signer.save(<-vault, to: /storage/TaskRewardTokenVault)
-              
-              // Create receiver capability
-              let receiver = signer.link<&{TaskRewardToken.Receiver}>(
-                /public/TaskRewardTokenReceiver,
-                target: /storage/TaskRewardTokenVault
-              )
-              
-              // Create balance capability
-              let balance = signer.link<&TaskRewardToken.Vault{TaskRewardToken.Balance}>(
-                /public/TaskRewardTokenBalance,
-                target: /storage/TaskRewardTokenVault
-              )
-            }
-          }
-        }
-      `;
-
-      const result = await send([
-        transaction(transactionCode),
-        proposer(fcl.authz),
-        authorizer(fcl.authz),
-        payer(fcl.authz)
-      ]);
-
-      return {
-        transactionId: result.transactionId,
-        success: true
-      };
-    } catch (error) {
-      console.error('Error setting up user vault:', error);
-      throw new Error('Failed to setup user vault');
-    }
-  }
-
-  /**
-   * Reward user for completing a task
-   */
-  async rewardUser(userId, taskId, rewardAmount) {
-    try {
-      // Get or create user's Flow account
-      let userAccount = await this.getUserAccount(userId);
-      if (!userAccount) {
-        userAccount = await this.createUserAccount(userId);
-      }
-
-      // Setup vault if needed
-      await this.setupUserVault(userAccount.address);
-
-      // Mint tokens to user
-      const mintResult = await this.mintTokens(userAccount.address, rewardAmount);
-
-      return {
-        success: true,
-        transactionId: mintResult.transactionId,
-        rewardAmount,
-        userAddress: userAccount.address
-      };
-    } catch (error) {
-      console.error('Error rewarding user:', error);
-      throw new Error('Failed to reward user');
-    }
-  }
-
-  /**
-   * Get user's Flow account (simplified for demo)
-   */
-  async getUserAccount(userId) {
-    // In a real implementation, this would query a database
-    // For now, return a mock account
-    return {
-      address: `0x${userId.slice(0, 16)}`,
-      userId
-    };
   }
 }
 
-module.exports = new FlowService(); 
+module.exports = new FlowService();
