@@ -1,4 +1,3 @@
-// useAuth.js (Custom Hook)
 import { useState, useEffect } from 'react';
 import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
