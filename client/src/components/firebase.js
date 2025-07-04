@@ -11,10 +11,3 @@
 //   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
 //   appId: process.env.REACT_APP_FIREBASE_APP_ID,
 //   measurementId: "G-Y0QD9JK4RR"
-// };
-
-// const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app);
-
-// export const auth = getAuth();
-// export default app;

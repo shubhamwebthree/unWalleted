@@ -45,3 +45,14 @@ Thumbs.db
 # Firebase
 .firebase/
 firebase-debug.log
+
+
+# flow
+emulator-account.pkey
+imports
+.env
+
+# flow
+emulator-account.pkey
+imports
+.env

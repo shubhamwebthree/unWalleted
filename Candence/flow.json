@@ -1,0 +1,37 @@
+{
+	"contracts": {
+		"Counter": {
+			"source": "cadence/contracts/Counter.cdc",
+			"aliases": {
+				"testing": "0000000000000007"
+			}
+		}
+	},
+	"dependencies": {
+		"FlowClusterQC": {
+			"source": "mainnet://8624b52f9ddcd04a.FlowClusterQC",
+			"hash": "5fd45018af7e3b7606caf437dd0b6be72f698556313754c12308b8d5b174051d",
+			"aliases": {
+				"emulator": "f8d6e0586b0a20c7",
+				"mainnet": "8624b52f9ddcd04a",
+				"testnet": "9eca2b38b18b5dfe"
+			}
+		}
+	},
+	"networks": {
+		"emulator": "127.0.0.1:3569",
+		"mainnet": "access.mainnet.nodes.onflow.org:9000",
+		"testing": "127.0.0.1:3569",
+		"testnet": "access.devnet.nodes.onflow.org:9000"
+	},
+	"accounts": {
+		"service" : {
+			"address": "9b91769749bb5fdc",
+			"key": "0bbb85b688b1f6cb38b0700a4e045362c17981b03009b1c07aa58996a6d48a6a"
+		},
+		"testnet-dev-account": {
+			"address": "9b91769749bb5fdc",
+			"key": "0bbb85b688b1f6cb38b0700a4e045362c17981b03009b1c07aa58996a6d48a6a"
+			}
+	}
+}
